@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Index",""],["IndexedReader",""],["Reader",""],["Record",""],["Records","An iterator over the records of a Fasta file."],["Sequence",""],["Writer","A Fasta writer."]]});

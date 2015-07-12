@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["AlignmentOperation",""]],"mod":[["pairwise","Calculate alignments with a generalized variant of the Smith Waterman algorithm. Complexity: O(n * m) for strings of length m and n."]],"struct":[["Alignment",""]]});
