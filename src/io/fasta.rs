@@ -16,6 +16,7 @@
 
 
 use std::io;
+use std::cmp;
 use std::io::prelude::*;
 use std::ascii::AsciiExt;
 use std::collections;
@@ -169,28 +170,34 @@ impl<R: io::Read + io::Seek> IndexedReader<R> {
                 let line = start / idx.line_bases * idx.line_bytes;
                 let line_offset = start % idx.line_bases;
                 let offset = idx.offset + line + line_offset;
-                let lines = stop / idx.line_bases * idx.line_bytes - line;
-                let line_stop = stop % idx.line_bases - if lines == 0 { line_offset } else { 0 };
+                let end = cmp::min(stop, idx.len);
 
                 try!(self.reader.seek(io::SeekFrom::Start(offset)));
-                let mut buf = vec![0u8; idx.line_bases as usize];
-                for _ in 0..lines {
+                let mut buf = vec![0u8; 1];
+                while seq.len() < (end - start) as usize {
                     // read full lines
-                    try!(self.reader.read(&mut buf));
-                    seq.push_all(&buf);
+                    match self.reader.read(&mut buf) {
+                      Ok(n) => {
+                        if buf[0] != 0xA && buf[0] != 13 {
+                          seq.push_all(&buf);
+                        }
+                      },
+                      Err(e) => {
+                        return Err(e);
+                      }
+                    }
                 }
                 // read last line
-                println!("linestop {}", line_stop);
-                try!(self.reader.read(&mut buf[..line_stop as usize]));
-                seq.push_all(&buf[..line_stop as usize]);
                 Ok(())
             },
-            None      => Err(
+            None      => {
+              Err(
                 io::Error::new(
                     io::ErrorKind::Other,
                     "Unknown sequence name."
                 )
             )
+            }
         }
     }
 }
@@ -342,8 +349,16 @@ ACCGTAGGCTGA
 >id2
 ATTGTTGTTTTA
 ";
-    const FAI_FILE: &'static [u8] = b"id\t12\t9\t60\t61
+    const MULTILINE_FASTA_FILE: &'static [u8] = b">name1
+AATCAGTTTGGTGGTCGTGG
+GGTGCCCCCTCCGACTTAGA
+GCTAACCGAA
+>name2
+GGACGAGCAGTATCACACAC
+GGGTAGATGTTTACGGCTAG
+CAATGGCGTT
 ";
+    const FAI_FILE: &'static [u8] = b"name1\t50\t7\t20\t21\nname2\t50\t67\t20\t21\n";
 
     #[test]
     fn test_reader() {
@@ -366,10 +381,18 @@ ATTGTTGTTTTA
 
     #[test]
     fn test_indexed_reader() {
-        let mut reader = IndexedReader::new(io::Cursor::new(FASTA_FILE), FAI_FILE).ok().expect("Error reading index");
+        let mut reader = IndexedReader::new(io::Cursor::new(MULTILINE_FASTA_FILE), FAI_FILE).ok().expect("Error reading index");
         let mut seq = Vec::new();
-        reader.read(b"id", 1, 5, &mut seq).ok().expect("Error reading sequence.");
-        assert_eq!(seq, b"CCGT");
+        reader.read(b"name1", 1, 5, &mut seq).ok().expect("Error reading sequence.");
+        assert_eq!(seq, b"ATCA");
+
+        // Read through newline
+        reader.read(b"name2", 10, 30, &mut seq).ok().expect("Error reading sequence.");
+        assert_eq!(seq, b"TATCACACACGGGTAGATGT");
+
+        // Read past end of sequence
+        reader.read(b"name1", 40, 60, &mut seq).ok().expect("Error reading sequence.");
+        assert_eq!(seq, b"GCTAACCGAA");
     }
 
     #[test]
