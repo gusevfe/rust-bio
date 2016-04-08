@@ -11,57 +11,86 @@
 //! parts of the matrix for which the error exceeds k. To achieve this, a value `lastk` is
 //! maintained that provides the lower feasible boundary of the matrix.
 //! Initially, lastk = min(k, m). In each iteration (over a column), lastk can increase by at most 1.
-
+//!
+//! # Example
+//!
+//! ```
+//! use bio::pattern_matching::ukkonen::{Ukkonen, unit_cost};
+//!
+//! let mut ukkonen = Ukkonen::with_capacity(10, unit_cost);
+//! let text = b"ACCGTGGATGAGCGCCATAG";
+//! let pattern = b"TGAGCGA";
+//! let occ: Vec<(usize, usize)> = ukkonen.find_all_end(pattern, text, 1).collect();
+//! assert_eq!(occ, [(13, 1), (14, 1)]);
+//! ```
 
 use std::cmp::min;
 use std::iter::repeat;
 
+use utils::TextSlice;
 
+
+/// Default cost function (unit costs).
 pub fn unit_cost(a: u8, b: u8) -> u32 {
     (a != b) as u32
 }
 
 
+/// Ukkonens algorithm.
 #[allow(non_snake_case)]
-pub struct Ukkonen<F> where F: Fn(u8, u8) -> u32 {
+pub struct Ukkonen<F>
+    where F: Fn(u8, u8) -> u32
+{
     D: [Vec<usize>; 2],
     cost: F,
 }
 
 
-impl<F> Ukkonen<F> where F: Fn(u8, u8) -> u32 {
+impl<F> Ukkonen<F>
+    where F: Fn(u8, u8) -> u32
+{
+    /// Initialize algorithm with given capacity and cost function.
     pub fn with_capacity(m: usize, cost: F) -> Self {
         let get_vec = || Vec::with_capacity(m + 1);
-        Ukkonen { D: [get_vec(), get_vec()], cost: cost }
+        Ukkonen {
+            D: [get_vec(), get_vec()],
+            cost: cost,
+        }
     }
 
     /// Find all matches between pattern and text with up to k errors.
-    /// Matches are returned as pairs of end position and errors.
-    ///
-    /// ```
-    /// use bio::pattern_matching::ukkonen::{Ukkonen, unit_cost};
-    /// 
-    /// let mut ukkonen = Ukkonen::with_capacity(10, unit_cost);
-    /// let text = b"ACCGTGGATGAGCGCCATAG";
-    /// let pattern = b"TGAGCGA";
-    /// let occ: Vec<(usize, usize)> = ukkonen.find_all_end(pattern, text, 1).collect();
-    /// assert_eq!(occ, [(13, 1), (14, 1)]);
-    /// ```
-    pub fn find_all_end<'a>(&'a mut self, pattern: &'a [u8], text: &'a [u8], k: usize) -> Matches<F> {
+    /// Matches are returned as an iterator over pairs of end position and distance.
+    pub fn find_all_end<'a>(&'a mut self,
+                            pattern: TextSlice<'a>,
+                            text: TextSlice<'a>,
+                            k: usize)
+                            -> Matches<F> {
         let m = pattern.len();
         self.D[0].clear();
-        self.D[0].extend(repeat(k+1).take(m + 1));
+        self.D[0].extend(repeat(k + 1).take(m + 1));
         self.D[1].clear();
         self.D[1].extend(0..m + 1);
-        Matches { ukkonen: self, pattern: pattern, text: text, i: 1, lastk: min(k, m), m: m, n: text.len(), k: k }
+        Matches {
+            ukkonen: self,
+            pattern: pattern,
+            text: text,
+            i: 1,
+            lastk: min(k, m),
+            m: m,
+            n: text.len(),
+            k: k,
+        }
     }
 }
 
 
-pub struct Matches<'a, F> where F: 'a + Fn(u8, u8) -> u32 {
+/// Iterator over pairs of end positions and distance of matches.
+pub struct Matches<'a, F>
+    where F: 'a + Fn(u8, u8) -> u32
+{
     ukkonen: &'a mut Ukkonen<F>,
-    pattern: &'a [u8],
-    text: &'a [u8],
+    pattern: TextSlice<'a>,
+    text: TextSlice<'a>,
     i: usize,
     lastk: usize,
     m: usize,
@@ -70,7 +99,9 @@ pub struct Matches<'a, F> where F: 'a + Fn(u8, u8) -> u32 {
 }
 
 
-impl<'a, F> Iterator for Matches<'a, F> where F: 'a + Fn(u8, u8) -> u32 {
+impl<'a, F> Iterator for Matches<'a, F>
+    where F: 'a + Fn(u8, u8) -> u32
+{
     type Item = (usize, usize);
 
     fn next(&mut self) -> Option<(usize, usize)> {
@@ -84,11 +115,11 @@ impl<'a, F> Iterator for Matches<'a, F> where F: 'a + Fn(u8, u8) -> u32 {
             self.lastk = min(self.lastk + 1, self.m);
             // in each column, go at most one cell further than before
             // do not look at cells with too big k
-            for j in (1..self.lastk+1) {
-                self.ukkonen.D[col][j] = min(
-                    min(self.ukkonen.D[prev][j] + 1, self.ukkonen.D[col][j - 1] + 1),
-                    self.ukkonen.D[prev][j - 1] + (cost)(self.pattern[j - 1], self.text[self.i - 1]) as usize
-                );
+            for j in 1..self.lastk + 1 {
+                self.ukkonen.D[col][j] =
+                    min(min(self.ukkonen.D[prev][j] + 1, self.ukkonen.D[col][j - 1] + 1),
+                        self.ukkonen.D[prev][j - 1] +
+                        (cost)(self.pattern[j - 1], self.text[self.i - 1]) as usize);
             }
 
             // reduce lastk as long as k is exceeded: while lastk can increase by at most 1, it can

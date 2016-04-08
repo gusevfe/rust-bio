@@ -3,7 +3,8 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
-//! A fixed-width bit encoding implementation.
+//! A fixed-width bit encoding implementation. This allows to store a sequence of values over
+//! a reduced alphabet by packing them bit-encoded into a sequence of bytes.
 //!
 //! # Example
 //!
@@ -18,11 +19,14 @@
 //! ```
 
 
+/// A sequence of bitencoded values.
+#[cfg_attr(feature = "serde_macros", derive(Serialize, Deserialize))]
 pub struct BitEnc {
     storage: Vec<u32>,
     width: usize,
     mask: u32,
-    len: usize
+    len: usize,
+    bits: usize,
 }
 
 
@@ -32,16 +36,31 @@ fn mask(width: usize) -> u32 {
 
 
 impl BitEnc {
+    /// Create a new instance with a given encoding width (e.g. width=2 for using two bits per value).
     pub fn new(width: usize) -> Self {
         assert!(width <= 8, "Only encoding widths up to 8 supported");
-        BitEnc { storage: Vec::new(), width: width, mask: mask(width), len: 0 }
+        BitEnc {
+            storage: Vec::new(),
+            width: width,
+            mask: mask(width),
+            len: 0,
+            bits: 32 - 32 % width,
+        }
     }
 
+    /// Create a new instance with a given capacity and encoding width (e.g. width=2 for using two bits per value).
     pub fn with_capacity(width: usize, n: usize) -> Self {
         assert!(width <= 8, "Only encoding widths up to 8 supported");
-        BitEnc { storage: Vec::with_capacity(n * width / 32), width: width, mask: mask(width), len: 0 }
+        BitEnc {
+            storage: Vec::with_capacity(n * width / 32),
+            width: width,
+            mask: mask(width),
+            len: 0,
+            bits: 32 - 32 % width,
+        }
     }
 
+    /// Append a value.
     pub fn push(&mut self, value: u8) {
         let (block, bit) = self.addr(self.len);
         if bit == 0 {
@@ -51,14 +70,17 @@ impl BitEnc {
         self.len += 1;
     }
 
+    /// Append `n` times the given value.
     pub fn push_values(&mut self, mut n: usize, value: u8) {
         {
             // fill the last block
-            let (block, bit) = self.addr(self.len);
+            let (block, mut bit) = self.addr(self.len);
             if bit > 0 {
-                for bit in (bit..32).step_by(self.width) {
+                // TODO use step_by once it has been stabilized: for bit in (bit..32).step_by(self.width) {
+                while bit <= 32 {
                     self.set_by_addr(block, bit, value);
                     n -= 1;
+                    bit = bit + self.width
                 }
             }
         }
@@ -67,7 +89,7 @@ impl BitEnc {
         let mut value_block = 0;
         {
             let mut v = value as u32;
-            for _ in 0..32/self.width {
+            for _ in 0..32 / self.width {
                 value_block |= v;
                 v <<= self.width;
             }
@@ -82,31 +104,37 @@ impl BitEnc {
 
         if bit > 0 {
             // add the remaining values to a final block
-            self.storage.push(value_block >> 32 - bit);
+            self.storage.push(value_block >> (32 - bit));
         }
 
         self.len = i;
     }
 
+    /// Set the value as position `i`.
     pub fn set(&mut self, i: usize, value: u8) {
         let (block, bit) = self.addr(i);
         self.set_by_addr(block, bit, value);
     }
 
+    /// Get the value at position `i`.
     pub fn get(&self, i: usize) -> Option<u8> {
         if i >= self.len {
             None
-        }
-        else {
+        } else {
             let (block, bit) = self.addr(i);
             Some(self.get_by_addr(block, bit))
         }
     }
 
+    /// Iterate over stored values (values will be unpacked into bytes).
     pub fn iter(&self) -> BitEncIter {
-        BitEncIter { bitenc: self, i: 0 }
+        BitEncIter {
+            bitenc: self,
+            i: 0,
+        }
     }
 
+    /// Clear the sequence.
     pub fn clear(&mut self) {
         self.storage.clear();
         self.len = 0;
@@ -125,18 +153,23 @@ impl BitEnc {
 
     fn addr(&self, i: usize) -> (usize, usize) {
         let k = i * self.width;
-        (k / 32, k % 32)
+        (k / self.bits, k % self.bits)
     }
 
     pub fn len(&self) -> usize {
         self.len
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
 }
 
 
+/// Iterator over values of a bitencoded sequence (values will be unpacked into bytes).
 pub struct BitEncIter<'a> {
     bitenc: &'a BitEnc,
-    i: usize
+    i: usize,
 }
 
 
@@ -172,6 +205,26 @@ mod tests {
     fn test_push_values() {
         let mut bitenc = BitEnc::new(2);
         bitenc.push_values(32, 0);
-        assert_eq!(bitenc.storage, [0,0]);
+        assert_eq!(bitenc.storage, [0, 0]);
+    }
+
+    #[test]
+    fn test_issue29() {
+        for w in 2..9 {
+            let mut vec = BitEnc::with_capacity(w, 1000);
+            for i in 0..1000 {
+                println!("Push {}", i);
+                vec.push(1);
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "nightly")]
+    fn test_serde() {
+        use serde::{Serialize, Deserialize};
+        fn impls_serde_traits<S: Serialize + Deserialize>() {}
+
+        impls_serde_traits::<BitEnc>();
     }
 }

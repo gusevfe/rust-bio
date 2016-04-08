@@ -19,18 +19,22 @@
 //! ```
 
 
-use std::collections::VecMap;
 use std::iter::repeat;
+use utils::TextSlice;
+
+use vec_map::VecMap;
 
 
+/// Backward oracle matching algorithm.
 pub struct BOM {
     m: usize,
-    table: Vec<VecMap<usize>>
+    table: Vec<VecMap<usize>>,
 }
 
 
 impl BOM {
-    pub fn new(pattern: &[u8]) -> Self {
+    /// Create a new instance for a given pattern.
+    pub fn new(pattern: TextSlice) -> Self {
         let m = pattern.len();
         let maxsym = *pattern.iter().max().expect("Expecting non-empty pattern.") as usize;
         let mut table: Vec<VecMap<usize>> = Vec::with_capacity(m);
@@ -42,8 +46,6 @@ impl BOM {
         for (j, &b) in pattern.iter().rev().enumerate() {
             let i = j + 1;
             let a = b as usize;
-        //for i in 1..m+1 {
-            //let a = pattern[i - 1] as usize;
             let mut delta = VecMap::with_capacity(maxsym);
             // reading symbol a leads into state i (this is an inner edge)
             delta.insert(a, i);
@@ -52,63 +54,61 @@ impl BOM {
 
             // for this iterate over the known suffixes until
             // reaching an edge labelled with a or the start
-            loop {
-                match k {
-                    Some(k_) => {
-                        if table[k_].contains_key(&a) {
-                            break;
-                        }
-                        table[k_].insert(a, i);
-                        k = suff[k_];
-                    },
-                    None => break
+            while let Some(k_) = k {
+                if table[k_].contains_key(a) {
+                    break;
                 }
+                table[k_].insert(a, i);
+                k = suff[k_];
             }
 
-            // the longest suffix is either 0 or the state 
+            // the longest suffix is either 0 or the state
             // reached by the edge labelled with a
             suff[i] = Some(match k {
-                Some(k) => *table[k].get(&a).unwrap(),
-                None => 0
+                Some(k) => *table[k].get(a).unwrap(),
+                None => 0,
             });
 
             table.push(delta);
         }
 
-        BOM { m: m, table: table }
+        BOM {
+            m: m,
+            table: table,
+        }
     }
 
     fn delta(&self, q: usize, a: u8) -> Option<usize> {
         if q >= self.table.len() {
             None
-        }
-        else {
-            match self.table[q].get(&(a as usize)) {
+        } else {
+            match self.table[q].get(a as usize) {
                 Some(&q) => Some(q),
-                None => None
+                None => None,
             }
         }
     }
 
-    /// Find all exact occurrences of the pattern in the given text.
-    ///
-    /// # Arguments
-    ///
-    /// * `text` - the given text
-    pub fn find_all<'a>(&'a self, text: &'a [u8]) -> BOMMatches {
-        BOMMatches { bom: self, text: text, window: self.m }
+    /// Find all matches of the pattern in the given text. Matches are returned as an iterator over start positions.
+    pub fn find_all<'a>(&'a self, text: TextSlice<'a>) -> Matches {
+        Matches {
+            bom: self,
+            text: text,
+            window: self.m,
+        }
     }
 }
 
 
-pub struct BOMMatches<'a> {
+/// Iterator over start positions of matches.
+pub struct Matches<'a> {
     bom: &'a BOM,
-    text: &'a [u8],
-    window: usize
+    text: TextSlice<'a>,
+    window: usize,
 }
 
 
-impl<'a> Iterator for BOMMatches<'a> {
+impl<'a> Iterator for Matches<'a> {
     type Item = usize;
 
     fn next(&mut self) -> Option<usize> {
@@ -119,8 +119,8 @@ impl<'a> Iterator for BOMMatches<'a> {
                     Some(q_) => {
                         q = self.bom.delta(q_, self.text[self.window - j]);
                         j += 1;
-                    },
-                    None => break
+                    }
+                    None => break,
                 }
             }
             // putative start position

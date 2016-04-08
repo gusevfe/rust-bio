@@ -9,12 +9,12 @@
 
 use std::iter::repeat;
 
-use data_structures::suffix_array::SuffixArray;
 use utils::prescan;
 use alphabets::Alphabet;
-
+use data_structures::suffix_array::SuffixArraySlice;
 
 pub type BWT = Vec<u8>;
+pub type BWTSlice = [u8];
 pub type Less = Vec<usize>;
 pub type BWTFind = Vec<usize>;
 
@@ -37,13 +37,17 @@ pub type BWTFind = Vec<usize>;
 /// let bwt = bwt(text, &pos);
 /// assert_eq!(bwt, b"ATTATTCAGGACCC$CTTTCAA");
 /// ```
-pub fn bwt(text: &[u8], pos: &SuffixArray) -> BWT {
+pub fn bwt(text: &[u8], pos: &SuffixArraySlice) -> BWT {
     assert!(text.len() == pos.len());
     let n = text.len();
     let mut bwt: BWT = repeat(0).take(n).collect();
     for r in 0..n {
         let p = pos[r];
-        bwt[r] = if p > 0 {text[p-1]} else {text[n-1]};
+        bwt[r] = if p > 0 {
+            text[p - 1]
+        } else {
+            text[n - 1]
+        };
     }
 
     bwt
@@ -56,7 +60,7 @@ pub fn bwt(text: &[u8], pos: &SuffixArray) -> BWT {
 /// # Arguments
 ///
 /// * `bwt` - the BWT
-pub fn invert_bwt(bwt: &BWT) -> Vec<u8> {
+pub fn invert_bwt(bwt: &BWTSlice) -> Vec<u8> {
     let alphabet = Alphabet::new(bwt);
     let n = bwt.len();
     let bwtfind = bwtfind(bwt, &alphabet);
@@ -72,13 +76,14 @@ pub fn invert_bwt(bwt: &BWT) -> Vec<u8> {
 }
 
 
+/// An occurence array implementation.
+#[cfg_attr(feature = "serde_macros", derive(Serialize, Deserialize))]
 pub struct Occ {
     occ: Vec<Vec<usize>>,
-    k: usize
+    k: usize,
 }
 
 
-/// An occurence array implementation.
 impl Occ {
     /// Calculate occ array with sampling from BWT of length n.
     /// Time complexity: O(n).
@@ -91,7 +96,7 @@ impl Occ {
     ///
     /// * `bwt` - the BWT
     /// * `k` - the sampling rate: every k-th entry will be stored
-    pub fn new(bwt: &BWT, k: usize, alphabet: &Alphabet) -> Self {
+    pub fn new(bwt: &BWTSlice, k: usize, alphabet: &Alphabet) -> Self {
         let n = bwt.len();
         let m = alphabet.max_symbol().expect("Expecting non-empty alphabet.") as usize + 1;
         let mut occ = Vec::with_capacity(n / k);
@@ -108,31 +113,33 @@ impl Occ {
 
     /// Get occurrence count of symbol a in BWT[..r+1].
     /// Complexity: O(k).
-    pub fn get(&self, bwt: &BWT, r: usize, a: u8) -> usize {
+    pub fn get(&self, bwt: &BWTSlice, r: usize, a: u8) -> usize {
         let i = r / self.k;
+        // TODO use sum() once it has been stabilized: .sum::<usize>()
         self.occ[i][a as usize] +
-        bwt[(i * self.k) + 1 .. r + 1].iter().map(|&c| (c == a) as usize).sum::<usize>()
+        bwt[(i * self.k) + 1..r + 1].iter().map(|&c| (c == a) as usize).fold(0, |s, e| s + e)
     }
 }
 
 
 /// Calculate the less array for a given BWT. Complexity O(n).
-pub fn less(bwt: &BWT, alphabet: &Alphabet) -> Less {
+pub fn less(bwt: &BWTSlice, alphabet: &Alphabet) -> Less {
     let m = alphabet.max_symbol().expect("Expecting non-empty alphabet.") as usize + 2;
     let mut less: Less = repeat(0)
-        .take(m).collect();
+                             .take(m)
+                             .collect();
     for &c in bwt.iter() {
         less[c as usize] += 1;
     }
     // calculate +-prescan
-    prescan(less.as_mut_slice(), 0, |a, b| a + b);
+    prescan(&mut less[..], 0, |a, b| a + b);
 
     less
 }
 
 
 /// Calculate the bwtfind array needed for inverting the BWT. Complexity O(n).
-pub fn bwtfind(bwt: &BWT, alphabet: &Alphabet) -> BWTFind {
+pub fn bwtfind(bwt: &BWTSlice, alphabet: &Alphabet) -> BWTFind {
     let n = bwt.len();
     let mut less = less(bwt, alphabet);
 
@@ -176,11 +183,17 @@ mod tests {
         let bwt = vec![1u8, 3u8, 3u8, 1u8, 2u8, 0u8];
         let alphabet = Alphabet::new(&[0u8, 1u8, 2u8, 3u8]);
         let occ = Occ::new(&bwt, 3, &alphabet);
-        assert_eq!(occ.occ, [
-            [0, 1, 0, 0],
-            [0, 2, 0, 2]
-        ]);
+        assert_eq!(occ.occ, [[0, 1, 0, 0], [0, 2, 0, 2]]);
         assert_eq!(occ.get(&bwt, 4, 2u8), 1);
         assert_eq!(occ.get(&bwt, 4, 3u8), 2);
+    }
+
+    #[test]
+    #[cfg(feature = "nightly")]
+    fn test_serde() {
+        use serde::{Serialize, Deserialize};
+        fn impls_serde_traits<S: Serialize + Deserialize>() {}
+
+        impls_serde_traits::<Occ>();
     }
 }

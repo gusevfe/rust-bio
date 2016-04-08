@@ -9,9 +9,12 @@
 //! Example
 //!
 //! ```
-//! #![feature(bitvec)]
+//! extern crate bit_vec;
+//! # extern crate bio;
+//! # fn main() {
 //! use bio::data_structures::rank_select::RankSelect;
-//! use std::collections::BitVec;
+//! use bit_vec::BitVec;
+//!
 //! let mut bits = BitVec::from_elem(64, false);
 //! bits.set(5, true);
 //! bits.set(32, true);
@@ -25,12 +28,15 @@
 //!
 //! assert!(rs.select(0).unwrap() == 0);
 //! assert!(rs.select(1).unwrap() == 5);
+//! # }
 //! ```
 
 
-use std::collections::BitVec;
+use bit_vec::BitVec;
 
 
+/// A rank/select data structure.
+#[cfg_attr(feature = "serde_macros", derive(Serialize, Deserialize))]
 pub struct RankSelect {
     n: usize,
     bits: Vec<u8>,
@@ -56,7 +62,12 @@ impl RankSelect {
         let raw = bits.to_bytes();
         let s = k * 32;
 
-        RankSelect { n: n, s: s, superblocks: superblocks(n, s, &raw), bits: raw }
+        RankSelect {
+            n: n,
+            s: s,
+            superblocks: superblocks(n, s, &raw),
+            bits: raw,
+        }
     }
 
     /// Get the rank of a given bit, i.e. the number of 1-bits in the bitvector up to i (inclusive).
@@ -68,18 +79,18 @@ impl RankSelect {
     pub fn rank(&self, i: usize) -> Option<u32> {
         if i >= self.n {
             None
-        }
-        else {
+        } else {
             let s = i / self.s; // the superblock
             let b = i / 8; // the block
             // take the superblock rank
             let mut rank = self.superblocks[s];
             // add the rank within the block
-            rank += (self.bits[b] >> 7 - i % 8).count_ones();
+            rank += (self.bits[b] >> (7 - i % 8)).count_ones();
             // add the popcounts of blocks in between
-            rank += self.bits[s * 32 / 8..b].iter()
-                .map(|&a| a.count_ones())
-                .fold(0, |a, b| a + b);
+            rank += self.bits[s * 32 / 8..b]
+                        .iter()
+                        .map(|&a| a.count_ones())
+                        .fold(0, |a, b| a + b);
 
             Some(rank)
         }
@@ -93,8 +104,7 @@ impl RankSelect {
     /// * `j` - The rank to find the smallest bit for.
     pub fn select(&self, j: u32) -> Option<usize> {
         let mut superblock = match self.superblocks.binary_search(&j) {
-            Ok(i)  => i, // superblock with same rank exists
-            Err(i) => i
+            Ok(i) | Err(i) => i, // superblock with same rank exists
         };
         if superblock > 0 {
             superblock -= 1;
@@ -122,7 +132,8 @@ impl RankSelect {
 }
 
 
-fn superblocks(n: usize, s: usize, raw_bits: &Vec<u8>) -> Vec<u32> {
+/// Create `n` superblocks of size `s` from a given bitvector.
+fn superblocks(n: usize, s: usize, raw_bits: &[u8]) -> Vec<u32> {
     let mut superblocks = Vec::with_capacity(n / s + 1);
     let mut rank: u32 = 0;
     let mut i = 0;
@@ -135,4 +146,16 @@ fn superblocks(n: usize, s: usize, raw_bits: &Vec<u8>) -> Vec<u32> {
     }
 
     superblocks
+}
+
+#[cfg(tests)]
+mod tests {
+    #[test]
+    #[cfg(feature = "nightly")]
+    fn test_serde() {
+        use serde::{Serialize, Deserialize};
+        fn impls_serde_traits<S: Serialize + Deserialize>() {}
+
+        impls_serde_traits::<RankSelect>();
+    }
 }

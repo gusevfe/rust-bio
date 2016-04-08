@@ -18,35 +18,43 @@
 //! let text = b"aaaaabbabbbbbbbabbab";
 //! let pattern = b"abbab";
 //! let kmp = KMP::new(pattern);
-//! let occ: Vec<usize> = kmp.find_all(text.iter()).collect();
+//! let occ: Vec<usize> = kmp.find_all(text).collect();
 //! assert_eq!(occ, [4, 15]);
 //! ```
 
 
 use std::iter::{repeat, Enumerate};
 
+use utils::{TextSlice, IntoTextIterator, TextIterator};
+
 
 type LPS = Vec<usize>;
 
 
+/// KMP algorithm.
 pub struct KMP<'a> {
     m: usize,
     lps: LPS,
-    pattern: &'a [u8]
+    pattern: TextSlice<'a>,
 }
 
 
 impl<'a> KMP<'a> {
-    pub fn new(pattern: &'a [u8]) -> Self {
+    /// Create a new instance for a given pattern.
+    pub fn new(pattern: TextSlice<'a>) -> Self {
         let m = pattern.len();
         let lps = lps(pattern);
 
-        KMP { lps: lps, m: m, pattern: pattern }
+        KMP {
+            lps: lps,
+            m: m,
+            pattern: pattern,
+        }
     }
 
     fn delta(&self, mut q: usize, a: u8) -> usize {
         while q == self.m || (self.pattern[q] != a && q > 0) {
-            q = self.lps[q-1];
+            q = self.lps[q - 1];
         }
         if self.pattern[q] == a {
             q += 1;
@@ -55,8 +63,13 @@ impl<'a> KMP<'a> {
         q
     }
 
-    pub fn find_all<'b, I: Iterator<Item=&'b u8>>(&'b self, text: I) -> KMPMatches<I> {
-        KMPMatches { kmp: self, q: 0, text: text.enumerate() }
+    /// Find all matches of pattern in a given text. Matches are returned as iterator over start positions.
+    pub fn find_all<'b, I: IntoTextIterator<'b>>(&'b self, text: I) -> Matches<'b, I::IntoIter> {
+        Matches {
+            kmp: self,
+            q: 0,
+            text: text.into_iter().enumerate(),
+        }
     }
 }
 
@@ -78,14 +91,15 @@ fn lps(pattern: &[u8]) -> LPS {
 }
 
 
-pub struct KMPMatches<'a, I: Iterator<Item=&'a u8>> {
+/// Iterator over start positions of matches.
+pub struct Matches<'a, I: TextIterator<'a>> {
     kmp: &'a KMP<'a>,
     q: usize,
     text: Enumerate<I>,
 }
 
 
-impl<'a, I: Iterator<Item=&'a u8>> Iterator for KMPMatches<'a, I> {
+impl<'a, I: Iterator<Item = &'a u8>> Iterator for Matches<'a, I> {
     type Item = usize;
 
     fn next(&mut self) -> Option<usize> {

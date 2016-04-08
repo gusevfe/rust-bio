@@ -20,7 +20,7 @@
 //! 1. test phase: compare the last symbol of the window.
 //!    If it matches, compare the whole pattern.
 //!    If it does not match, continue with the shift phase.
-//! 2. shift phase: let l[a] be the rightmost position of a in 
+//! 2. shift phase: let l[a] be the rightmost position of a in
 //!    the pattern without the last symbol. If it does not occur
 //!    let l[a] be -1. Shift the window by m - 1 - l[a]. I.e.
 //!    we shift the window such that the rightmost a matches
@@ -39,55 +39,65 @@
 //! ```
 
 
+use utils::TextSlice;
+
+
+/// Algorithm of Horspool.
 pub struct Horspool<'a> {
     shift: Vec<usize>,
     m: usize,
-    pattern: &'a [u8]
+    pattern: TextSlice<'a>,
 }
 
 
 impl<'a> Horspool<'a> {
-    pub fn new(pattern: &'a [u8]) -> Self {
+    /// Create a new instance for a given pattern.
+    pub fn new(pattern: TextSlice<'a>) -> Self {
         let m = pattern.len();
         let mut shift = vec![m; 256];
         // shift is m for all not occurring characters
         // and m - 1 - j for all others
-        for (j, &a) in pattern[..m-1].iter().enumerate() {
+        for (j, &a) in pattern[..m - 1].iter().enumerate() {
             shift[a as usize] = m - 1 - j;
         }
 
         Horspool {
-            m: m, shift: shift, pattern: pattern
+            m: m,
+            shift: shift,
+            pattern: pattern,
         }
     }
 
-    pub fn find_all<'b>(&'b self, text: &'b [u8]) -> HorspoolMatches {
-        HorspoolMatches {
-            horspool: self, text: text, n: text.len(),
+    /// Find all matches with a given text. Matches are returned as an iterator over start positions.
+    pub fn find_all<'b>(&'b self, text: TextSlice<'b>) -> Matches {
+        Matches {
+            horspool: self,
+            text: text,
+            n: text.len(),
             last: self.m - 1,
-            pattern_last: self.pattern[self.m - 1]
+            pattern_last: self.pattern[self.m - 1],
         }
     }
 }
 
 
-pub struct HorspoolMatches<'a> {
+/// Iterator over start positions of matches.
+pub struct Matches<'a> {
     horspool: &'a Horspool<'a>,
-    text: &'a [u8],
+    text: TextSlice<'a>,
     n: usize,
     last: usize,
-    pattern_last: u8
+    pattern_last: u8,
 }
 
 
-impl<'a> Iterator for HorspoolMatches<'a> {
+impl<'a> Iterator for Matches<'a> {
     type Item = usize;
 
     fn next(&mut self) -> Option<usize> {
         loop {
             // shift until the last symbol matches
-            while self.last < self.n
-                && self.text[self.last] != self.pattern_last {
+            while self.last < self.n && self.text[self.last] != self.pattern_last {
                 self.last += self.horspool.shift[self.text[self.last] as usize];
             }
             // stop if end of text is reached
@@ -102,7 +112,7 @@ impl<'a> Iterator for HorspoolMatches<'a> {
             // shift again (after both match and mismatch, this makes sense)
             self.last += self.horspool.shift[self.pattern_last as usize];
 
-            if self.text[i..j] == self.horspool.pattern[..self.horspool.m-1] {
+            if self.text[i..j] == self.horspool.pattern[..self.horspool.m - 1] {
                 return Some(i);
             }
         }

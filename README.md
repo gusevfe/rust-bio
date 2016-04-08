@@ -1,5 +1,7 @@
-[![Build Status](https://travis-ci.org/johanneskoester/rust-bio.svg?branch=master)](https://travis-ci.org/johanneskoester/rust-bio)
-[![](http://meritbadge.herokuapp.com/bio)](https://crates.io/crates/bio)
+[![Crates.io](https://img.shields.io/crates/d/bio.svg?style=flat-square)](https://crates.io/crates/bio)
+[![Crates.io](https://img.shields.io/crates/v/bio.svg?style=flat-square)](https://crates.io/crates/bio)
+[![Crates.io](https://img.shields.io/crates/l/bio.svg?style=flat-square)](https://crates.io/crates/bio)
+[![Travis](https://img.shields.io/travis/rust-bio/rust-bio/master.svg?style=flat-square)](https://travis-ci.org/rust-bio/rust-bio)
 
 # Rust-Bio, a bioinformatics library for Rust.
 
@@ -7,6 +9,8 @@ This library provides implementations of many algorithms and data structures
 that are useful for bioinformatics.
 All provided implementations are rigorously tested via continuous
 integration.
+
+**Please see the [homepage](https://rust-bio.github.io) for examples and documentation.**
 
 Currently, rust-bio provides
 
@@ -18,70 +22,31 @@ Currently, rust-bio provides
 * FMD-Index for finding supermaximal exact matches,
 * a q-gram index,
 * a rank/select data structure,
+* [serde](https://github.com/serde-rs/serde) support for all data structures when built with `nightly` feature,
 * FASTQ and FASTA and BED readers and writers,
 * helper functions for combinatorics and dealing with log probabilities.
 
 For reading and writing BAM and BCF files, have a look at https://github.com/christopher-schroeder/rust-htslib.
 
-## Resources
-
-* Homepage: https://github.com/johanneskoester/rust-bio
-* API documentation: https://johanneskoester.github.io/rust-bio
-* Continuous integration tests: https://travis-ci.org/johanneskoester/rust-bio
-* Roadmap: https://github.com/johanneskoester/rust-bio/issues/3
-
-## Usage
-
-To use rust-bio in your Rust project, add the following to your `Cargo.toml`
-
-```toml
-[dependencies]
-bio = "*"
-```
-
-and import the crate from your source code:
-
-```rust
-extern crate bio;
-
-// Import some modules
-use bio::alphabets;
-use bio::data_structures::suffix_array::suffix_array;
-use bio::data_structures::bwt::bwt;
-use bio::data_structures::fmindex::FMIndex;
-use bio::io::fastq;
-
-// Create an FM-Index for a given text.
-let alphabet = alphabets::dna::iupac_alphabet();
-let pos = suffix_array(text);
-let bwt = bwt(text, &pos);
-let fmindex = FMIndex::new(&bwt, 3, &alphabet);
-
-
-// Iterate over a FASTQ file, use the alphabet to validate read
-// sequences and search for exact matches in the FM-Index.
-let reader = fastq::Reader::from_file("reads.fastq");
-for record in reader.records() {
-    let seq = record.seq();
-    if alphabet.is_word(seq) {
-        let interval = fmindex.backward_search(seq.iter());
-        let positions = interval.occ(&pos);
-    }
-}
-```
-
-For more information, please read the API documentation: https://johanneskoester.github.io/rust-bio
-
 ## Author
 
-Johannes Köster (<koester@jimmy.harvard.edu>)
+[Johannes Köster](https://github.com/johanneskoester)
 
 ## Contributors
 
-* Christopher Schröder (<christopher.schroeder@uni-due.de>)
-* Peer Aramillo Irizar
+* [Christopher Schröder](https://github.com/christopher-schroeder)
+* [Peer Aramillo Irizar](https://github.com/parir)
+* [Fedor Gusev](https://github.com/gusevfe)
+* [Vadim Nazarov](https://github.com/vadimnazarov)
+* [Brad Chapman](https://github.com/chapmanb)
+* [Florian Gilcher](https://github.com/skade)
+* [Erik Clarke](https://github.com/eclarke)
+* [Rizky Luthfianto](https://github.com/rilut)
+* [Adam Perry](https://github.com/dikaiosune)
+* [Taylor Cramer](https://github.com/cramertj)
+* [Andre Bogus](https://github.com/llogiq)
 
-The next name in this list could be you! If you are interested in joining the effort to build a general purpose Rust bioinformatics library, just send me an email, or issue a pull request with your first contribution.
+The next name in this list could be you! If you are interested in joining the effort to build a general purpose Rust bioinformatics library, just introduce yourself [here](https://github.com/rust-bio/rust-bio/issues/3), or issue a pull request with your first contribution.
 
 ## License
 

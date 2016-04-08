@@ -4,7 +4,7 @@
 // except according to those terms.
 
 
-//! Fasta reading and writing.
+//! FASTA format reading and writing.
 //!
 //! # Example
 //!
@@ -27,25 +27,31 @@ use std::convert::AsRef;
 use csv;
 
 
+/// A FASTA reader.
 pub struct Reader<R: io::Read> {
     reader: io::BufReader<R>,
-    line: String
+    line: String,
 }
 
 
 impl Reader<fs::File> {
+    /// Read FASTA from given file path.
     pub fn from_file<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        fs::File::open(path).map(|f| Reader::new(f))
+        fs::File::open(path).map(Reader::new)
     }
 }
 
 
 impl<R: io::Read> Reader<R> {
-    /// Create a new FastQ reader.
+    /// Create a new Fasta reader given an instance of `io::Read`.
     pub fn new(reader: R) -> Self {
-        Reader { reader: io::BufReader::new(reader), line: String::new() }
+        Reader {
+            reader: io::BufReader::new(reader),
+            line: String::new(),
+        }
     }
 
+    /// Read next FASTA record into the given `Record`.
     pub fn read(&mut self, record: &mut Record) -> io::Result<()> {
         record.clear();
         if self.line.is_empty() {
@@ -55,17 +61,14 @@ impl<R: io::Read> Reader<R> {
             }
         }
 
-        if !self.line.starts_with(">") {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Expected > at record start."
-            ));
+        if !self.line.starts_with('>') {
+            return Err(io::Error::new(io::ErrorKind::Other, "Expected > at record start."));
         }
         record.header.push_str(&self.line);
         loop {
             self.line.clear();
             try!(self.reader.read_line(&mut self.line));
-            if self.line.is_empty() || self.line.starts_with(">") {
+            if self.line.is_empty() || self.line.starts_with('>') {
                 break;
             }
             record.seq.push_str(&self.line.trim_right());
@@ -81,6 +84,7 @@ impl<R: io::Read> Reader<R> {
 }
 
 
+/// A FASTA index as created by SAMtools (.fai).
 pub struct Index {
     inner: collections::HashMap<Vec<u8>, IndexRecord>,
     seqs: Vec<Vec<u8>>,
@@ -88,6 +92,7 @@ pub struct Index {
 
 
 impl Index {
+    /// Open a FASTA index from a given `io::Read` instance.
     pub fn new<R: io::Read>(fai: R) -> csv::Result<Self> {
         let mut inner = collections::HashMap::new();
         let mut seqs = vec![];
@@ -97,30 +102,45 @@ impl Index {
             seqs.push(name.clone().into_bytes());
             inner.insert(name.into_bytes(), record);
         }
-        Ok(Index { inner: inner, seqs: seqs })
+        Ok(Index {
+            inner: inner,
+            seqs: seqs,
+        })
     }
 
+    /// Open a FASTA index from a given file path.
     pub fn from_file<P: AsRef<Path>>(path: &P) -> csv::Result<Self> {
         match fs::File::open(path) {
             Ok(fai) => Self::new(fai),
-            Err(e)  => Err(csv::Error::Io(e))
+            Err(e) => Err(csv::Error::Io(e)),
         }
     }
 
+    /// Open a FASTA index given the corresponding FASTA file path (e.g. for ref.fasta we expect ref.fasta.fai).
     pub fn with_fasta_file<P: AsRef<Path>>(fasta_path: &P) -> csv::Result<Self> {
-        let mut ext = fasta_path.as_ref().extension().unwrap().to_str().unwrap().to_string();
+        let mut ext = fasta_path.as_ref().extension().unwrap().to_str().unwrap().to_owned();
         ext.push_str(".fai");
         let fai_path = fasta_path.as_ref().with_extension(ext);
 
         Self::from_file(&fai_path)
     }
 
+    /// Return a vector of sequences described in the index.
     pub fn sequences(&self) -> Vec<Sequence> {
-        self.seqs.iter().map(|name| Sequence { name: name.clone(), len: self.inner.get(name).unwrap().len }).collect()
+        self.seqs
+            .iter()
+            .map(|name| {
+                Sequence {
+                    name: name.clone(),
+                    len: self.inner.get(name).unwrap().len,
+                }
+            })
+            .collect()
     }
 }
 
 
+/// A FASTA reader with an index as created by SAMtools (.fai).
 pub struct IndexedReader<R: io::Read + io::Seek> {
     reader: io::BufReader<R>,
     pub index: Index,
@@ -128,40 +148,51 @@ pub struct IndexedReader<R: io::Read + io::Seek> {
 
 
 impl IndexedReader<fs::File> {
+    /// Read from a given file path. This assumes the index ref.fasta.fai to be present for FASTA ref.fasta.
     pub fn from_file<P: AsRef<Path>>(path: &P) -> csv::Result<Self> {
         let index = try!(Index::with_fasta_file(path));
 
         match fs::File::open(path) {
             Ok(fasta) => Ok(IndexedReader::with_index(fasta, index)),
-            Err(e)    => Err(csv::Error::Io(e))
+            Err(e) => Err(csv::Error::Io(e)),
         }
     }
 }
 
 
 impl<R: io::Read + io::Seek> IndexedReader<R> {
+    /// Read from a FASTA and its index, both given as `io::Read`. FASTA has to be `io::Seek` in addition.
     pub fn new<I: io::Read>(fasta: R, fai: I) -> csv::Result<Self> {
         let index = try!(Index::new(fai));
-        Ok(IndexedReader { reader: io::BufReader::new(fasta), index: index })
+        Ok(IndexedReader {
+            reader: io::BufReader::new(fasta),
+            index: index,
+        })
     }
 
+    /// Read from a FASTA and its index, the first given as `io::Read`, the second given as index object.
     pub fn with_index(fasta: R, index: Index) -> Self {
-        IndexedReader { reader: io::BufReader::new(fasta), index: index }
-    }
-
-    pub fn read_all(&mut self, seqname: &[u8], seq: &mut Vec<u8>) -> io::Result<()> {
-        match self.index.inner.get(seqname) {
-            Some(&idx) => self.read(seqname, 0, idx.len, seq),
-            None      => Err(
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    "Unknown sequence name."
-                )
-            )
+        IndexedReader {
+            reader: io::BufReader::new(fasta),
+            index: index,
         }
     }
 
-    pub fn read(&mut self, seqname: &[u8], start: u64, stop: u64, seq: &mut Vec<u8>) -> io::Result<()> {
+    /// For a given seqname, read the whole sequence into the given vector.
+    pub fn read_all(&mut self, seqname: &[u8], seq: &mut Vec<u8>) -> io::Result<()> {
+        match self.index.inner.get(seqname) {
+            Some(&idx) => self.read(seqname, 0, idx.len, seq),
+            None => Err(io::Error::new(io::ErrorKind::Other, "Unknown sequence name.")),
+        }
+    }
+
+    /// Read the given interval of the given seqname into the given vector (stop position is exclusive).
+    pub fn read(&mut self,
+                seqname: &[u8],
+                start: u64,
+                stop: u64,
+                seq: &mut Vec<u8>)
+                -> io::Result<()> {
         match self.index.inner.get(seqname) {
             Some(idx) => {
                 seq.clear();
@@ -177,9 +208,9 @@ impl<R: io::Read + io::Seek> IndexedReader<R> {
                 while seq.len() < (end - start) as usize {
                     // read full lines
                     match self.reader.read(&mut buf) {
-                      Ok(n) => {
+                      Ok(_) => {
                         if buf[0] != 0xA && buf[0] != 13 {
-                          seq.push_all(&buf);
+                          seq.extend(&buf);
                         }
                       },
                       Err(e) => {
@@ -203,6 +234,7 @@ impl<R: io::Read + io::Seek> IndexedReader<R> {
 }
 
 
+/// Record of a FASTA index.
 #[derive(RustcDecodable, Debug, Copy, Clone)]
 struct IndexRecord {
     len: u64,
@@ -212,6 +244,7 @@ struct IndexRecord {
 }
 
 
+/// A sequence record returned by the FASTA index.
 pub struct Sequence {
     pub name: Vec<u8>,
     pub len: u64,
@@ -225,8 +258,9 @@ pub struct Writer<W: io::Write> {
 
 
 impl Writer<fs::File> {
-    pub fn from_file<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        fs::File::create(path).map(|f| Writer::new(f))
+    /// Write to the given file path.
+    pub fn to_file<P: AsRef<Path>>(path: P) -> io::Result<Self> {
+        fs::File::create(path).map(Writer::new)
     }
 }
 
@@ -242,13 +276,7 @@ impl<W: io::Write> Writer<W> {
         self.write(record.id().unwrap_or(""), record.desc(), record.seq())
     }
 
-    /// Write a Fasta record with given values.
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - the record id
-    /// * `desc` - the optional descriptions
-    /// * `seq` - the sequence
+    /// Write a Fasta record with given id, optional description and sequence.
     pub fn write(&mut self, id: &str, desc: Option<&str>, seq: &[u8]) -> io::Result<()> {
         try!(self.writer.write(b">"));
         try!(self.writer.write(id.as_bytes()));
@@ -270,6 +298,7 @@ impl<W: io::Write> Writer<W> {
 }
 
 
+/// A FASTA record.
 pub struct Record {
     header: String,
     seq: String,
@@ -277,10 +306,15 @@ pub struct Record {
 
 
 impl Record {
+    /// Create a new instance.
     pub fn new() -> Self {
-        Record { header: String::new(), seq: String::new() }
+        Record {
+            header: String::new(),
+            seq: String::new(),
+        }
     }
 
+    /// Check if record is empty.
     pub fn is_empty(&self) -> bool {
         self.header.is_empty() && self.seq.is_empty()
     }
@@ -299,12 +333,12 @@ impl Record {
 
     /// Return the id of the record.
     pub fn id(&self) -> Option<&str> {
-        self.header[1..].trim_right().splitn(2, " ").next()
+        self.header[1..].trim_right().splitn(2, ' ').next()
     }
 
     /// Return descriptions if present.
     pub fn desc(&self) -> Option<&str> {
-        self.header[1..].trim_right().splitn(2, " ").skip(1).next()
+        self.header[1..].trim_right().splitn(2, ' ').skip(1).next()
     }
 
     /// Return the sequence of the record.
@@ -312,6 +346,7 @@ impl Record {
         self.seq.as_bytes()
     }
 
+    /// Clear the record.
     fn clear(&mut self) {
         self.header.clear();
         self.seq.clear();
@@ -332,8 +367,8 @@ impl<R: io::Read> Iterator for Records<R> {
         let mut record = Record::new();
         match self.reader.read(&mut record) {
             Ok(()) if record.is_empty() => None,
-            Ok(())   => Some(Ok(record)),
-            Err(err) => Some(Err(err))
+            Ok(()) => Some(Ok(record)),
+            Err(err) => Some(Err(err)),
         }
     }
 }
@@ -365,14 +400,14 @@ CAATGGCGTT
         let reader = Reader::new(FASTA_FILE);
         let ids = [Some("id"), Some("id2")];
         let descs = [Some("desc"), None];
-        let seqs : [&[u8]; 2] = [b"ACCGTAGGCTGA", b"ATTGTTGTTTTA"];
+        let seqs: [&[u8]; 2] = [b"ACCGTAGGCTGA", b"ATTGTTGTTTTA"];
 
         for (i, r) in reader.records().enumerate() {
-          let record = r.ok().expect("Error reading record");
-          assert_eq!(record.check(), Ok(()));
-          assert_eq!(record.id(), ids[i]);
-          assert_eq!(record.desc(), descs[i]);
-          assert_eq!(record.seq(), seqs[i]);
+            let record = r.ok().expect("Error reading record");
+            assert_eq!(record.check(), Ok(()));
+            assert_eq!(record.id(), ids[i]);
+            assert_eq!(record.desc(), descs[i]);
+            assert_eq!(record.seq(), seqs[i]);
         }
 
 

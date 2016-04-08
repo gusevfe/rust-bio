@@ -1,15 +1,26 @@
 [package]
 
 name = "bio"
-version = "0.3.11"
+version = "0.5.0"
 authors = ["Johannes Köster <johannes.koester@tu-dortmund.de>"]
-description = "A rusty bioinformatics library. This library provides implementations of many algorithms and data structures that are useful for bioinformatics."
+description = "A bioinformatics library for Rust. This library provides implementations of many algorithms and data structures that are useful for bioinformatics."
 homepage = "https://github.com/johanneskoester/rust-bio"
 readme = "README.md"
 license = "MIT"
 
+[features]
+nightly = ["serde", "serde_macros", "vec_map/eders"]
+
 [dependencies]
-csv = "*"
-rustc-serialize = "*"
-num = "*"
-itertools = "*"
+csv = "0.14.*"
+rustc-serialize = "0.3.*"
+num = "0.1.*"
+itertools = "0.4.*"
+bit-vec = "0.4.*"
+vec_map = "0.6.*"
+bit-set = "0.3.*"
+nalgebra= "0.4.*"
+lazy_static = "0.1.*"
+serde = { version = "0.6", optional = true }
+serde_macros = { version = "0.6", optional = true }
+approx = "0.1.*"

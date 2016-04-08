@@ -3,7 +3,7 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
-//! Handling different alphabets.
+//! Implementation of alphabets and useful utilities.
 //!
 //! # Example
 //!
@@ -14,11 +14,12 @@
 //! assert!(!alphabet.is_word(b"AXYZ"));
 //! ```
 
-
-use std::collections::{BitSet, VecMap};
+use std::iter::FromIterator;
 use std::slice;
 use std::mem;
 
+use bit_set::BitSet;
+use vec_map::VecMap;
 
 pub mod dna;
 pub mod protein;
@@ -28,7 +29,7 @@ pub type SymbolRanks = VecMap<u8>;
 
 /// Representation of an alphabet.
 pub struct Alphabet {
-    pub symbols: BitSet
+    pub symbols: BitSet,
 }
 
 
@@ -38,13 +39,6 @@ impl Alphabet {
         Alphabet::from_iter(symbols.iter())
     }
 
-    pub fn from_iter<'a, I: Iterator<Item=&'a u8>>(symbols: I) -> Self {
-        let mut s = BitSet::new();
-        s.extend(symbols.map(|&c| c as usize));
-
-        Alphabet { symbols: s }
-    }
-
     /// Insert symbol into alphabet.
     pub fn insert(&mut self, a: u8) {
         self.symbols.insert(a as usize);
@@ -52,7 +46,7 @@ impl Alphabet {
 
     /// Check if given text is a word over the alphabet.
     pub fn is_word(&self, text: &[u8]) -> bool {
-        text.iter().all(|&c| self.symbols.contains(&(c as usize)))
+        text.iter().all(|&c| self.symbols.contains(c as usize))
     }
 
     /// Return lexicographically maximal symbol.
@@ -64,12 +58,27 @@ impl Alphabet {
     pub fn len(&self) -> usize {
         self.symbols.len()
     }
+
+    /// Is this alphabet empty?
+    pub fn is_empty(&self) -> bool {
+        self.symbols.is_empty()
+    }
 }
 
+impl<'a> FromIterator<&'a u8> for Alphabet {
+    /// Create a new alphabet from the given iterator.
+    fn from_iter<T: IntoIterator<Item = &'a u8>>(iterator: T) -> Self {
+        let mut s = BitSet::new();
+        s.extend(iterator.into_iter().map(|&c| c as usize));
+
+        Alphabet { symbols: s }
+    }
+}
 
 /// Tools based on transforming the alphabet symbols to their lexicographical ranks.
+#[cfg_attr(feature = "serde_macros", derive(Serialize, Deserialize))]
 pub struct RankTransform {
-    pub ranks: SymbolRanks
+    pub ranks: SymbolRanks,
 }
 
 
@@ -86,13 +95,13 @@ impl RankTransform {
 
     /// Get the rank of symbol `a`.
     pub fn get(&self, a: u8) -> u8 {
-        *self.ranks.get(&(a as usize)).expect("Unexpected character.")
+        *self.ranks.get(a as usize).expect("Unexpected character.")
     }
 
     /// Transform a given `text`.
     pub fn transform(&self, text: &[u8]) -> Vec<u8> {
         text.iter()
-            .map(|&c| *self.ranks.get(&(c as usize)).expect("Unexpected character in text."))
+            .map(|&c| *self.ranks.get(c as usize).expect("Unexpected character in text."))
             .collect()
     }
 
@@ -102,17 +111,18 @@ impl RankTransform {
     /// If q is larger than usize::BITS / log2(|A|), this method fails with an assertion.
     pub fn qgrams<'a>(&'a self, q: u32, text: &'a [u8]) -> QGrams {
         let bits = (self.ranks.len() as f32).log2().ceil() as u32;
-        assert!((bits * q) as usize <= mem::size_of::<usize>() * 8, "Expecting q to be smaller than usize / log2(|A|)");
+        assert!((bits * q) as usize <= mem::size_of::<usize>() * 8,
+                "Expecting q to be smaller than usize / log2(|A|)");
 
         let mut qgrams = QGrams {
             text: text.iter(),
             ranks: self,
             bits: bits,
-            mask: (1 << q * bits) - 1,
+            mask: (1 << (q * bits)) - 1,
             qgram: 0,
         };
 
-        for _ in 0..q-1 {
+        for _ in 0..q - 1 {
             qgrams.next();
         }
 
@@ -120,7 +130,7 @@ impl RankTransform {
     }
 
     /// Restore alphabet from transform.
-    pub fn alphabet<'a>(&self) -> Alphabet {
+    pub fn alphabet(&self) -> Alphabet {
         let mut symbols = BitSet::with_capacity(self.ranks.len());
         symbols.extend(self.ranks.keys());
         Alphabet { symbols: symbols }
@@ -156,8 +166,20 @@ impl<'a> Iterator for QGrams<'a> {
                 let b = self.ranks.get(*a);
                 self.qgram_push(b);
                 Some(self.qgram)
-            },
-            None    => None
+            }
+            None => None,
         }
+    }
+}
+
+#[cfg(tests)]
+mod tests {
+    #[test]
+    #[cfg(feature = "nightly")]
+    fn test_serde() {
+        use serde::{Serialize, Deserialize};
+        fn impls_serde_traits<S: Serialize + Deserialize>() {}
+
+        impls_serde_traits::<RankTransform>();
     }
 }

@@ -29,6 +29,7 @@
 
 
 use std::collections;
+use std::collections::hash_map::Entry;
 use std;
 use std::cmp;
 
@@ -37,6 +38,7 @@ use utils;
 
 
 /// A classical, flexible, q-gram index implementation.
+#[cfg_attr(feature = "serde_macros", derive(Serialize, Deserialize))]
 pub struct QGramIndex {
     q: u32,
     address: Vec<usize>,
@@ -67,10 +69,10 @@ impl QGramIndex {
             address[qgram] += 1;
         }
 
-        for g in 1..address.len() {
-            if address[g] > max_count {
+        for mut a in address.iter_mut().skip(1) {
+            if *a > max_count {
                 // mask qgram
-                address[g] = 0;
+                *a = 0;
             }
         }
 
@@ -88,9 +90,15 @@ impl QGramIndex {
             }
         }
 
-        QGramIndex { q: q, address: address, pos: pos, ranks: ranks }
+        QGramIndex {
+            q: q,
+            address: address,
+            pos: pos,
+            ranks: ranks,
+        }
     }
 
+    /// The used q.
     pub fn q(&self) -> u32 {
         self.q
     }
@@ -108,24 +116,30 @@ impl QGramIndex {
         for (i, qgram) in self.ranks.qgrams(self.q, pattern).enumerate() {
             for &p in self.qgram_matches(qgram) {
                 let diagonal = p - i;
-                if !diagonals.contains_key(&diagonal) {
-                    diagonals.insert(diagonal, Match {
+                match diagonals.entry(diagonal) {
+                    Entry::Vacant(v) => { v.insert(Match {
                         pattern: Interval { start: i, stop: i + q },
                         text: Interval { start: p, stop: p + q },
                         count: 1,
-                    });
-                }
-                else {
-                    let m = diagonals.get_mut(&diagonal).unwrap();
-                    m.pattern.stop = i + q;
-                    m.text.stop = p + q;
-                    m.count += 1;
+                    }); },
+                    Entry::Occupied(mut o) => {
+                        let m = o.get_mut();
+                        m.pattern.stop = i + q;
+                        m.text.stop = p + q;
+                        m.count += 1;
+                    }
                 }
             }
         }
-        diagonals.into_iter().filter_map(
-            |(_, m)| if m.count >= min_count { Some(m) } else { None }
-        ).collect()
+        diagonals.into_iter()
+                 .filter_map(|(_, m)| {
+                     if m.count >= min_count {
+                         Some(m)
+                     } else {
+                         None
+                     }
+                 })
+                 .collect()
     }
 
     /// Return exact matches (substrings) of the given pattern.
@@ -138,26 +152,25 @@ impl QGramIndex {
         for (i, qgram) in self.ranks.qgrams(self.q, pattern).enumerate() {
             for &p in self.qgram_matches(qgram) {
                 let diagonal = p - i;
-                if !diagonals.contains_key(&diagonal) {
-                    diagonals.insert(diagonal, ExactMatch {
+                match diagonals.entry(diagonal) {
+                    Entry::Vacant(v) => { v.insert(ExactMatch {
                         pattern: Interval { start: i, stop: i + q },
                         text: Interval { start: p, stop: p + q },
-                    });
-                }
-                else {
-                    let m = diagonals.get_mut(&diagonal).unwrap();
-                    if m.pattern.stop - q + 1 != i {
-                        // discontinue match
-                        matches.push(*m);
-                        // start new match
-                        m.pattern.start = i;
-                        m.pattern.stop = i + q;
-                        m.text.start = p;
-                        m.text.stop = p + q;
-                    }
-                    else {
-                        m.pattern.stop = i + q;
-                        m.text.stop = p + q;
+                    }); },
+                    Entry::Occupied(mut o) => {
+                        let m = o.get_mut();
+                        if m.pattern.stop - q + 1 == i {
+                            m.pattern.stop = i + q;
+                            m.text.stop = p + q;
+                        } else {
+                            // discontinue match
+                            matches.push(*m);
+                            // start new match
+                            m.pattern.start = i;
+                            m.pattern.stop = i + q;
+                            m.text.start = p;
+                            m.text.stop = p + q;
+                        }
                     }
                 }
             }
@@ -175,11 +188,12 @@ impl QGramIndex {
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub struct Interval {
     pub start: usize,
-    pub stop: usize
+    pub stop: usize,
 }
 
 
 impl Interval {
+    /// Get the text within the given interval.
     pub fn get<'a>(&self, text: &'a [u8]) -> &'a [u8] {
         &text[self.start..self.stop]
     }
@@ -251,13 +265,18 @@ mod tests {
 
         let pattern = b"GCTG";
         let matches = qgram_index.matches(pattern, 1);
-        assert_eq!(matches, [
-            Match {
-                pattern: Interval { start: 0, stop: 4 },
-                text: Interval { start: 3, stop: 7 },
-                count: 2
-            }
-        ]);
+        assert_eq!(matches,
+                   [Match {
+                        pattern: Interval {
+                            start: 0,
+                            stop: 4,
+                        },
+                        text: Interval {
+                            start: 3,
+                            stop: 7,
+                        },
+                        count: 2,
+                    }]);
     }
 
     #[test]
@@ -272,5 +291,14 @@ mod tests {
         for m in exact_matches {
             assert_eq!(m.pattern.get(pattern), m.text.get(text));
         }
+    }
+
+    #[test]
+    #[cfg(feature = "nightly")]
+    fn test_serde() {
+        use serde::{Serialize, Deserialize};
+        fn impls_serde_traits<S: Serialize + Deserialize>() {}
+
+        impls_serde_traits::<QGramIndex>();
     }
 }
